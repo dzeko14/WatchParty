@@ -10,13 +10,12 @@ from app.db.engine import engine
 
 app = FastAPI()
 
-@app.get("/user/{user_id}")
+@app.get("/users/{user_id}")
 async def user(session: SessionDep, user_id: uuid.UUID) -> UserRead:
-    user = await session.get(User, user_id)
-    if user != None:
-        return UserRead.model_validate(user)
-    else:
+    read_user = await session.get(User, user_id)
+    if read_user is None:
         raise HTTPException(status_code=404, detail="There is no user with such id")
+    return UserRead.model_validate(read_user)   
 
 @app.get("/users")
 async def list_users(session: SessionDep) -> list[UserRead]:
