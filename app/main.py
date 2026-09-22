@@ -2,13 +2,39 @@ import uuid
 
 from fastapi import FastAPI, HTTPException
 from sqlalchemy import text, select
+from sqlalchemy.exc import IntegrityError
 
 from app.api.deps import SessionDep
 from app.models.user import User
-from app.schemas.user import UserRead
+from app.schemas.user import UserRead, UserCreate
 from app.db.engine import engine
+from app.core.security import hash_password
 
 app = FastAPI()
+
+@app.post("/auth/register", status_code=201)
+async def register(session: SessionDep, userCreate: UserCreate) -> UserRead:
+    existing = await session.scalar(select(User).where(User.email == userCreate.email))
+
+    if existing is not None:
+        raise HTTPException(409, "Email already registered")
+
+    password_hash = await hash_password(userCreate.password)
+    new_user = User(
+        id = uuid.uuid4(),
+        email = userCreate.email,
+        password_hash = password_hash,
+        display_name = userCreate.display_name
+    )
+    session.add(new_user)
+    try:
+        await session.commit()
+    except IntegrityError as exc:
+        await session.rollback()
+        raise exc
+
+    return UserRead.model_validate(new_user)
+
 
 @app.get("/users/{user_id}")
 async def user(session: SessionDep, user_id: uuid.UUID) -> UserRead:
