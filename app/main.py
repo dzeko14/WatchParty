@@ -13,25 +13,24 @@ from app.core.security import hash_password
 app = FastAPI()
 
 @app.post("/auth/register", status_code=201)
-async def register(session: SessionDep, userCreate: UserCreate) -> UserRead:
-    existing = await session.scalar(select(User).where(User.email == userCreate.email))
+async def register(session: SessionDep, user_create: UserCreate) -> UserRead:
+    existing = await session.scalar(select(User).where(User.email == user_create.email))
 
     if existing is not None:
         raise HTTPException(409, "Email already registered")
 
-    password_hash = await hash_password(userCreate.password)
+    password_hash = await hash_password(user_create.password)
     new_user = User(
-        id = uuid.uuid4(),
-        email = userCreate.email,
+        email = user_create.email,
         password_hash = password_hash,
-        display_name = userCreate.display_name
+        display_name = user_create.display_name
     )
     session.add(new_user)
     try:
         await session.commit()
-    except IntegrityError as exc:
+    except IntegrityError:
         await session.rollback()
-        raise exc
+        raise HTTPException(409, "Email already registered")
 
     return UserRead.model_validate(new_user)
 
