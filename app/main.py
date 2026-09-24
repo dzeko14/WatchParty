@@ -6,11 +6,28 @@ from sqlalchemy.exc import IntegrityError
 
 from app.api.deps import SessionDep
 from app.models.user import User
-from app.schemas.user import UserRead, UserCreate
+from app.schemas.user import UserRead, UserCreate, UserLogin, UserLoginResponse
 from app.db.engine import engine
-from app.core.security import hash_password
+from app.core.security import hash_password, verify_password, create_access_token
 
 app = FastAPI()
+
+@app.post("/auth/login", status_code=200)
+async def login(session: SessionDep, user_login: UserLogin) -> UserLoginResponse:
+    user = await session.scalar(select(User).where(User.email == user_login.email))
+
+    if user is None:
+        raise HTTPException(401, "Email or password is wrong")
+
+    is_verified_password = await verify_password(user_login.password, user.password_hash)
+
+    if not is_verified_password:
+        raise HTTPException(401, "Email or password is wrong")
+
+    return UserLoginResponse(
+        access_token=create_access_token(str(user.id))
+    )
+
 
 @app.post("/auth/register", status_code=201)
 async def register(session: SessionDep, user_create: UserCreate) -> UserRead:
