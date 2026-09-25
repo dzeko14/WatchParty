@@ -23,7 +23,7 @@ def create_access_token(subject: str) -> str:
     exp_time = current_time + timedelta(minutes=settings.access_token_expire_minutes)
     payload = {
         "sub": subject,
-        "exp": current_time,
-        "iat": exp_time
+        "exp": exp_time,
+        "iat": current_time
     }
     return jwt.encode(payload, settings.jwt_secret_key, settings.jwt_algorithm)

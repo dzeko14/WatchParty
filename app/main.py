@@ -4,7 +4,7 @@ from fastapi import FastAPI, HTTPException
 from sqlalchemy import text, select
 from sqlalchemy.exc import IntegrityError
 
-from app.api.deps import SessionDep
+from app.api.deps import SessionDep, CurrentUserDep
 from app.models.user import User
 from app.schemas.user import UserRead, UserCreate, UserLogin, UserLoginResponse
 from app.db.engine import engine
@@ -51,6 +51,10 @@ async def register(session: SessionDep, user_create: UserCreate) -> UserRead:
 
     return UserRead.model_validate(new_user)
 
+
+@app.get("/users/me")
+async def user_me(currentUser: CurrentUserDep) -> UserRead:
+    return UserRead.model_validate(currentUser)
 
 @app.get("/users/{user_id}")
 async def user(session: SessionDep, user_id: uuid.UUID) -> UserRead:
