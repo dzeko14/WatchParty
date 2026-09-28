@@ -14,7 +14,8 @@ from app.core.config import settings
 from app.db.base import Base
 from app.db.session import get_session
 from app.main import app
-from app.models.user import User  # noqa: F401  — registers the table
+from app.models.user import User
+from app.core.security import create_access_token, hash_password
 
 @pytest.fixture(scope="session")
 async def engine() -> AsyncIterator[AsyncEngine]:
@@ -47,3 +48,19 @@ async def client(session: AsyncSession) -> AsyncIterator[AsyncClient]:
     ) as c:
         yield c
     app.dependency_overrides.clear()
+
+@pytest.fixture
+async def user(session: AsyncSession) -> User:
+    u = User(
+        email="ihor@example.com",
+        password_hash=await hash_password("secret12"),
+        display_name="Ihor",
+    )
+    session.add(u)
+    await session.commit()
+    return u
+
+@pytest.fixture
+def auth_headers(user: User) -> dict[str, str]:
+    token = create_access_token(str(user.id))
+    return {"Authorization": f"Bearer {token}"}

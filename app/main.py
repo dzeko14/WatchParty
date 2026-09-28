@@ -6,7 +6,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.api.deps import SessionDep, CurrentUserDep
 from app.models.user import User
-from app.schemas.user import UserRead, UserCreate, UserLogin, UserLoginResponse
+from app.schemas.user import UserRead, UserCreate, UserLogin, UserLoginResponse, UserUpdate
 from app.db.engine import engine
 from app.core.security import hash_password, verify_password, create_access_token
 
@@ -52,9 +52,16 @@ async def register(session: SessionDep, user_create: UserCreate) -> UserRead:
     return UserRead.model_validate(new_user)
 
 
+@app.patch("/users/me")
+async def user_me_patch(current_user: CurrentUserDep, session: SessionDep, user_update: UserUpdate) -> UserRead:
+    for field, value in user_update.model_dump(exclude_unset=True).items():
+        setattr(current_user, field, value)
+    await session.commit()
+    return UserRead.model_validate(current_user)
+
 @app.get("/users/me")
-async def user_me(currentUser: CurrentUserDep) -> UserRead:
-    return UserRead.model_validate(currentUser)
+async def user_me(current_user: CurrentUserDep) -> UserRead:
+    return UserRead.model_validate(current_user)
 
 @app.get("/users/{user_id}")
 async def user(session: SessionDep, user_id: uuid.UUID) -> UserRead:

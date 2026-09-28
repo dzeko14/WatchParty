@@ -23,3 +23,8 @@ class UserLogin(BaseModel):
 class UserLoginResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
+
+class UserUpdate(BaseModel):
+    model_config = ConfigDict(extra = "forbid")
+
+    display_name: str | None = Field(default=None, max_length=64)
