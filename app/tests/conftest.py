@@ -1,4 +1,4 @@
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -9,8 +9,8 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+from testcontainers.community.postgres import PostgresContainer
 
-from app.core.config import settings
 from app.core.security import create_access_token, hash_password
 from app.db.base import Base
 from app.db.session import get_session
@@ -19,13 +19,17 @@ from app.models.user import User
 
 
 @pytest.fixture(scope="session")
-async def engine() -> AsyncIterator[AsyncEngine]:
-    eng = create_async_engine(settings.test_database_url)
+def postgres_url() -> Iterator[str]:
+    with PostgresContainer("postgres:16", driver="asyncpg") as pg:
+        yield pg.get_connection_url()
+
+
+@pytest.fixture(scope="session")
+async def engine(postgres_url: str) -> AsyncIterator[AsyncEngine]:
+    eng = create_async_engine(postgres_url)
     async with eng.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield eng
-    async with eng.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
     await eng.dispose()
 
 
