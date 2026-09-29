@@ -11,11 +11,12 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from app.core.config import settings
+from app.core.security import create_access_token, hash_password
 from app.db.base import Base
 from app.db.session import get_session
 from app.main import app
 from app.models.user import User
-from app.core.security import create_access_token, hash_password
+
 
 @pytest.fixture(scope="session")
 async def engine() -> AsyncIterator[AsyncEngine]:
@@ -27,6 +28,7 @@ async def engine() -> AsyncIterator[AsyncEngine]:
         await conn.run_sync(Base.metadata.drop_all)
     await eng.dispose()
 
+
 @pytest.fixture
 async def session(engine: AsyncEngine) -> AsyncIterator[AsyncSession]:
     factory = async_sessionmaker(engine, expire_on_commit=False)
@@ -36,6 +38,7 @@ async def session(engine: AsyncEngine) -> AsyncIterator[AsyncSession]:
     async with engine.begin() as conn:
         for table in reversed(Base.metadata.sorted_tables):
             await conn.execute(delete(table))
+
 
 @pytest.fixture
 async def client(session: AsyncSession) -> AsyncIterator[AsyncClient]:
@@ -49,6 +52,7 @@ async def client(session: AsyncSession) -> AsyncIterator[AsyncClient]:
         yield c
     app.dependency_overrides.clear()
 
+
 @pytest.fixture
 async def user(session: AsyncSession) -> User:
     u = User(
@@ -59,6 +63,7 @@ async def user(session: AsyncSession) -> User:
     session.add(u)
     await session.commit()
     return u
+
 
 @pytest.fixture
 def auth_headers(user: User) -> dict[str, str]:
