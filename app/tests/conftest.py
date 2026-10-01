@@ -1,6 +1,9 @@
+import asyncio
 from collections.abc import AsyncIterator, Iterator
 
 import pytest
+from alembic import command
+from alembic.config import Config
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import (
@@ -25,10 +28,16 @@ def postgres_url() -> Iterator[str]:
 
 
 @pytest.fixture(scope="session")
-async def engine(postgres_url: str) -> AsyncIterator[AsyncEngine]:
+def alembic_cfg(postgres_url: str) -> Config:
+    cfg = Config("alembic.ini")
+    cfg.attributes["database.url"] = postgres_url
+    return cfg
+
+
+@pytest.fixture(scope="session")
+async def engine(postgres_url: str, alembic_cfg: Config) -> AsyncIterator[AsyncEngine]:
+    await asyncio.to_thread(command.upgrade, alembic_cfg, "head")
     eng = create_async_engine(postgres_url)
-    async with eng.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
     yield eng
     await eng.dispose()
 
