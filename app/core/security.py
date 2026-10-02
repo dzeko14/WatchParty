@@ -1,4 +1,6 @@
 import asyncio
+import hashlib
+import secrets
 from datetime import UTC, datetime, timedelta
 
 import jwt
@@ -26,3 +28,11 @@ def create_access_token(subject: str) -> str:
     exp_time = current_time + timedelta(minutes=settings.access_token_expire_minutes)
     payload = {"sub": subject, "exp": exp_time, "iat": current_time}
     return jwt.encode(payload, settings.jwt_secret_key, settings.jwt_algorithm)
+
+
+def create_refresh_token() -> str:
+    return secrets.token_urlsafe(32)
+
+
+def hash_refresh_token(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()

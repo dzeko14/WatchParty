@@ -1,14 +1,25 @@
 import uuid
+from datetime import UTC, datetime, timedelta
 
 from fastapi import FastAPI, HTTPException
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text, update
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUserDep, SessionDep
-from app.core.security import create_access_token, hash_password, verify_password
+from app.core.config import settings
+from app.core.security import (
+    create_access_token,
+    create_refresh_token,
+    hash_password,
+    hash_refresh_token,
+    verify_password,
+)
 from app.db.engine import engine
+from app.models.refresh_token import RefreshToken
 from app.models.user import User
 from app.schemas.user import (
+    RefreshRequest,
     UserCreate,
     UserLogin,
     UserLoginResponse,
@@ -17,6 +28,17 @@ from app.schemas.user import (
 )
 
 app = FastAPI()
+
+
+def add_refresh_token(session: AsyncSession, user_id: uuid.UUID) -> str:
+    token = create_refresh_token()
+    expires_at = datetime.now(UTC) + timedelta(days=settings.refresh_token_expire_days)
+    session.add(
+        RefreshToken(
+            user_id=user_id, token_hash=hash_refresh_token(token), expires_at=expires_at
+        )
+    )
+    return token
 
 
 @app.post("/auth/login", status_code=200)
@@ -33,7 +55,35 @@ async def login(session: SessionDep, user_login: UserLogin) -> UserLoginResponse
     if not is_verified_password:
         raise HTTPException(401, "Email or password is wrong")
 
-    return UserLoginResponse(access_token=create_access_token(str(user.id)))
+    refresh_token = add_refresh_token(session, user.id)
+    await session.commit()
+
+    return UserLoginResponse(
+        access_token=create_access_token(str(user.id)), refresh_token=refresh_token
+    )
+
+
+@app.post("/auth/refresh")
+async def refresh(session: SessionDep, body: RefreshRequest) -> UserLoginResponse:
+    user_id = await session.scalar(
+        update(RefreshToken)
+        .where(
+            RefreshToken.token_hash == hash_refresh_token(body.refresh_token),
+            RefreshToken.revoked_at.is_(None),
+            RefreshToken.expires_at > func.now(),
+        )
+        .values(revoked_at=func.now())
+        .returning(RefreshToken.user_id)
+    )
+
+    if user_id is None:
+        raise HTTPException(401, "Invalid refresh token")
+
+    refresh_token = add_refresh_token(session, user_id)
+    await session.commit()
+    return UserLoginResponse(
+        access_token=create_access_token(str(user_id)), refresh_token=refresh_token
+    )
 
 
 @app.post("/auth/register", status_code=201)
