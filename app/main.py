@@ -95,6 +95,15 @@ async def login(session: SessionDep, user_login: UserLogin) -> UserLoginResponse
 @app.post("/auth/refresh")
 async def refresh(session: SessionDep, body: RefreshRequest) -> UserLoginResponse:
     token_hash = hash_refresh_token(body.refresh_token)
+    owner_id = await session.scalar(
+        select(User.id)
+        .join(RefreshToken, RefreshToken.user_id == User.id)
+        .where(RefreshToken.token_hash == token_hash)
+        .with_for_update(of=User)  # SQL: ... FOR UPDATE OF users
+    )
+    if owner_id is None:
+        raise HTTPException(401, "Invalid refresh token")
+
     user_id = await session.scalar(
         update(RefreshToken)
         .where(
