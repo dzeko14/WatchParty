@@ -71,3 +71,52 @@ async def test_two_refreshes_at_once_only_one_wins(client: AsyncClient) -> None:
         client.post("/auth/refresh", json=body),
     )
     assert sorted([r1.status_code, r2.status_code]) == [200, 401]
+
+
+async def test_logout_stops_the_refresh_token(client: AsyncClient) -> None:
+    tokens = await register_and_login(client)
+    body = {"refresh_token": tokens["refresh_token"]}
+
+    r1 = await client.post("auth/logout", json=body)
+    assert r1.status_code == 204
+
+    r2 = await client.post("auth/refresh", json=body)
+    assert r2.status_code == 401
+
+
+async def test_logout_with_unknown_token_returns_204(client: AsyncClient) -> None:
+    r1 = await client.post("auth/logout", json={"refresh_token": "nonesense"})
+    assert r1.status_code == 204
+
+
+async def test_reused_token_stops_every_token_of_the_user(client: AsyncClient) -> None:
+    phone = await register_and_login(client)
+    laptop = (await client.post("/auth/login", json=REG)).json()
+    old = {"refresh_token": phone["refresh_token"]}
+
+    r = await client.post("/auth/refresh", json=old)
+    assert r.status_code == 200
+    new = r.json()
+
+    r = await client.post("/auth/refresh", json=old)
+    assert r.status_code == 401
+
+    for token in (new["refresh_token"], laptop["refresh_token"]):
+        r = await client.post("/auth/refresh", json={"refresh_token": token})
+        assert r.status_code == 401
+
+
+async def test_reuse_does_not_touch_other_users(client: AsyncClient) -> None:
+    ihor = await register_and_login(client)
+    olena_creds = {"email": "olena@example.com", "password": "secret12"}
+    await client.post("/auth/register", json=olena_creds)
+    olena = (await client.post("/auth/login", json=olena_creds)).json()
+
+    old = {"refresh_token": ihor["refresh_token"]}
+    await client.post("/auth/refresh", json=old)
+    await client.post("/auth/refresh", json=old)
+
+    r = await client.post(
+        "/auth/refresh", json={"refresh_token": olena["refresh_token"]}
+    )
+    assert r.status_code == 200

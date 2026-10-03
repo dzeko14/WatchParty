@@ -41,6 +41,35 @@ def add_refresh_token(session: AsyncSession, user_id: uuid.UUID) -> str:
     return token
 
 
+async def revoke_all_if_unused(session: AsyncSession, token_hash: str) -> None:
+    user_id = await session.scalar(
+        select(RefreshToken.user_id).where(
+            RefreshToken.token_hash == token_hash, RefreshToken.revoked_at.is_not(None)
+        )
+    )
+    if user_id is None:
+        return
+    await session.execute(
+        update(RefreshToken)
+        .where(RefreshToken.user_id == user_id, RefreshToken.revoked_at.is_(None))
+        .values(revoked_at=func.now())
+    )
+    await session.commit()
+
+
+@app.post("/auth/logout", status_code=204)
+async def logout(session: SessionDep, body: RefreshRequest) -> None:
+    await session.execute(
+        update(RefreshToken)
+        .where(
+            RefreshToken.token_hash == hash_refresh_token(body.refresh_token),
+            RefreshToken.revoked_at.is_(None),
+        )
+        .values(revoked_at=func.now())
+    )
+    await session.commit()
+
+
 @app.post("/auth/login", status_code=200)
 async def login(session: SessionDep, user_login: UserLogin) -> UserLoginResponse:
     user = await session.scalar(select(User).where(User.email == user_login.email))
@@ -65,10 +94,11 @@ async def login(session: SessionDep, user_login: UserLogin) -> UserLoginResponse
 
 @app.post("/auth/refresh")
 async def refresh(session: SessionDep, body: RefreshRequest) -> UserLoginResponse:
+    token_hash = hash_refresh_token(body.refresh_token)
     user_id = await session.scalar(
         update(RefreshToken)
         .where(
-            RefreshToken.token_hash == hash_refresh_token(body.refresh_token),
+            RefreshToken.token_hash == token_hash,
             RefreshToken.revoked_at.is_(None),
             RefreshToken.expires_at > func.now(),
         )
@@ -77,6 +107,7 @@ async def refresh(session: SessionDep, body: RefreshRequest) -> UserLoginRespons
     )
 
     if user_id is None:
+        await revoke_all_if_unused(session, token_hash)
         raise HTTPException(401, "Invalid refresh token")
 
     refresh_token = add_refresh_token(session, user_id)
