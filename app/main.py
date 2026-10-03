@@ -41,7 +41,7 @@ def add_refresh_token(session: AsyncSession, user_id: uuid.UUID) -> str:
     return token
 
 
-async def revoke_all_if_unused(session: AsyncSession, token_hash: str) -> None:
+async def revoke_all_if_reused(session: AsyncSession, token_hash: str) -> None:
     user_id = await session.scalar(
         select(RefreshToken.user_id).where(
             RefreshToken.token_hash == token_hash, RefreshToken.revoked_at.is_not(None)
@@ -107,7 +107,7 @@ async def refresh(session: SessionDep, body: RefreshRequest) -> UserLoginRespons
     )
 
     if user_id is None:
-        await revoke_all_if_unused(session, token_hash)
+        await revoke_all_if_reused(session, token_hash)
         raise HTTPException(401, "Invalid refresh token")
 
     refresh_token = add_refresh_token(session, user_id)

@@ -77,10 +77,10 @@ async def test_logout_stops_the_refresh_token(client: AsyncClient) -> None:
     tokens = await register_and_login(client)
     body = {"refresh_token": tokens["refresh_token"]}
 
-    r1 = await client.post("auth/logout", json=body)
+    r1 = await client.post("/auth/logout", json=body)
     assert r1.status_code == 204
 
-    r2 = await client.post("auth/refresh", json=body)
+    r2 = await client.post("/auth/refresh", json=body)
     assert r2.status_code == 401
 
 
