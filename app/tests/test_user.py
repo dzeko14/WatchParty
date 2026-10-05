@@ -62,3 +62,16 @@ async def test_patch_is_saved_in_the_database(
     async with engine.connect() as conn:
         saved = await conn.scalar(select(User.display_name))
     assert saved == "Ihor B"
+
+
+async def test_user_by_id_needs_login(client: AsyncClient, user: User) -> None:
+    r = await client.get(f"/users/{user.id}")
+    assert r.status_code == 401
+
+
+async def test_user_by_id_works_with_login(
+    client: AsyncClient, user: User, auth_headers: dict[str, str]
+) -> None:
+    r = await client.get(f"/users/{user.id}", headers=auth_headers)
+    assert r.status_code == 200
+    assert r.json()["id"] == str(user.id)
