@@ -18,6 +18,7 @@ from app.core.security import create_access_token, hash_password
 from app.db.base import Base
 from app.db.session import get_session
 from app.main import app
+from app.models.room import Room
 from app.models.user import User
 
 
@@ -87,3 +88,11 @@ async def user(session: AsyncSession) -> User:
 def auth_headers(user: User) -> dict[str, str]:
     token = create_access_token(str(user.id))
     return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture
+async def room(session: AsyncSession) -> Room:
+    r = Room(code="AAAAAAA")
+    session.add(r)
+    await session.commit()
+    return r

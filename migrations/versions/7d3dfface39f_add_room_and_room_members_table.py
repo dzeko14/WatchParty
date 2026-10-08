@@ -1,8 +1,8 @@
 """Add room and room members table
 
-Revision ID: 120d797fc243
+Revision ID: 7d3dfface39f
 Revises: f887036978f5
-Create Date: 2026-10-06 16:49:20.837142
+Create Date: 2026-10-08 13:04:56.138508
 
 """
 
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = "120d797fc243"
+revision: str = "7d3dfface39f"
 down_revision: str | Sequence[str] | None = "f887036978f5"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
@@ -24,7 +24,7 @@ def upgrade() -> None:
     op.create_table(
         "rooms",
         sa.Column("id", sa.Uuid(), nullable=False),
-        sa.Column("code", sa.String(length=5), nullable=False),
+        sa.Column("code", sa.String(length=7), nullable=False),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("code"),
     )

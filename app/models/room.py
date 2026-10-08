@@ -10,7 +10,7 @@ class Room(Base):
     __tablename__ = "rooms"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    code: Mapped[str] = mapped_column(String(5), unique=True)
+    code: Mapped[str] = mapped_column(String(7), unique=True)
 
 
 class RoomMembers(Base):
