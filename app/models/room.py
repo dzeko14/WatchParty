@@ -13,7 +13,7 @@ class Room(Base):
     code: Mapped[str] = mapped_column(String(7), unique=True)
 
 
-class RoomMembers(Base):
+class RoomMember(Base):
     __tablename__ = "room_members"
 
     user_id: Mapped[uuid.UUID] = mapped_column(

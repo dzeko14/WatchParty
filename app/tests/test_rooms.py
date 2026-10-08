@@ -6,7 +6,8 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
-from app.models.room import Room, RoomMembers
+from app.api.routers.rooms import CODE_ALPHABET
+from app.models.room import Room, RoomMember
 from app.models.user import User
 
 REG = {"email": "ihor@example.com", "password": "secret12"}
@@ -27,7 +28,9 @@ async def test_post_room_return_new_room_with_token(
     assert body["id"] is not None
     assert code is not None
     assert len(code) == 7
-    assert code.isalpha() and code.isascii()
+    for c in code:
+        index = CODE_ALPHABET.find(c)
+        assert index > -1
 
 
 async def test_post_room_return_new_room_with_user_in_it(
@@ -39,7 +42,7 @@ async def test_post_room_return_new_room_with_user_in_it(
 
     async with engine.connect() as con:
         user_id = await con.scalar(
-            select(RoomMembers.user_id).where(RoomMembers.room_id == body["id"])
+            select(RoomMember.user_id).where(RoomMember.room_id == body["id"])
         )
     assert user_id == user.id
 
@@ -77,7 +80,7 @@ async def test_same_membership_refused(
 
     second_membership_was_not_created = False
     try:
-        session.add(RoomMembers(user_id=user.id, room_id=uuid.UUID(body["id"])))
+        session.add(RoomMember(user_id=user.id, room_id=uuid.UUID(body["id"])))
         await session.commit()
     except IntegrityError:
         second_membership_was_not_created = True
