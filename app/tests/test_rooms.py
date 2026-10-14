@@ -1,6 +1,4 @@
 import asyncio
-import random
-import string
 import uuid
 
 from httpx import AsyncClient
@@ -21,12 +19,12 @@ async def setup_full_room(
     session: AsyncSession, member_count: int, code: str = "AAAAAAA"
 ) -> Room:
     u1 = User(
-        email=f"{''.join(random.choices(string.ascii_letters, k=7))}@mail.com",
+        email=f"{uuid.uuid4()}@mail.com",
         password_hash=await hash_password("secret12"),
     )
     session.add(u1)
     u2 = User(
-        email=f"{''.join(random.choices(string.ascii_letters, k=7))}@mail.com",
+        email=f"{uuid.uuid4()}@mail.com",
         password_hash=await hash_password("secret12"),
     )
     session.add(u2)
