@@ -12,6 +12,7 @@ class Room(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     code: Mapped[str] = mapped_column(String(7), unique=True)
     member_limit: Mapped[int] = mapped_column(server_default="5")
+    is_public: Mapped[bool] = mapped_column(default=True, server_default="True")
 
 
 class RoomMember(Base):
