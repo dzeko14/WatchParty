@@ -6,23 +6,49 @@ from sqlalchemy.exc import IntegrityError
 
 from app.api.deps import CurrentUserDep, SessionDep, get_current_user
 from app.models.room import Room, RoomMember
-from app.schemas.rooms import RoomRead
+from app.schemas.rooms import PublicRoomRead, RoomCreate, RoomRead
 
 router = APIRouter(
     prefix="/rooms", tags=["rooms"], dependencies=[Depends(get_current_user)]
 )
 
 CODE_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+DEFAULT_ROOM_CREATE = RoomCreate()
 
 
 def new_code() -> str:
     return "".join(secrets.choice(CODE_ALPHABET) for _ in range(7))
 
 
+@router.get("")
+async def get_rooms(
+    session: SessionDep,
+) -> list[PublicRoomRead]:
+    rows = await session.execute(
+        select(
+            Room.id,
+            Room.code,
+            Room.member_limit,
+            func.count(RoomMember.room_id).label("member_count"),
+        )
+        .outerjoin(RoomMember, RoomMember.room_id == Room.id)
+        .where(Room.is_public)
+        .group_by(Room.id)
+        .order_by(Room.id)
+        .limit(50)
+    )
+
+    return [PublicRoomRead.model_validate(row) for row in rows]
+
+
 @router.post("", status_code=201)
-async def post_rooms(session: SessionDep, user: CurrentUserDep) -> RoomRead:
+async def post_rooms(
+    session: SessionDep, user: CurrentUserDep, body: RoomCreate = DEFAULT_ROOM_CREATE
+) -> RoomRead:
     for _ in range(5):
-        r = Room(code=new_code())
+        r = Room(
+            code=new_code(), member_limit=body.member_limit, is_public=body.is_public
+        )
         try:
             async with session.begin_nested():
                 session.add(r)

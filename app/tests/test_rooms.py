@@ -1,9 +1,13 @@
 import asyncio
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
+from typing import Any
 
+import pytest
 from httpx import AsyncClient
 from pytest import MonkeyPatch
-from sqlalchemy import func, select
+from sqlalchemy import event, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
@@ -255,3 +259,177 @@ async def test_2_users_joins_1_free_place_in_room_one_successfully_joins(
         client.post(f"/rooms/{room.code}/members", headers=auth_header_2),
     )
     assert sorted([r1.status_code, r2.status_code]) == [201, 409]
+
+
+async def test_rooms_with_body_return_201_and_chosen_values(
+    client: AsyncClient,
+    session: AsyncSession,
+    auth_headers: dict[str, str],
+) -> None:
+    r = await client.post(
+        "/rooms", headers=auth_headers, json={"is_public": False, "member_limit": 6}
+    )
+    assert r.status_code == 201
+    body = r.json()
+    assert body["is_public"] is False
+    assert body["member_limit"] == 6
+
+    room_in_db = await session.scalar(
+        select(Room).where(Room.id == uuid.UUID(body["id"]))
+    )
+    assert room_in_db is not None
+    assert room_in_db.is_public is False
+    assert room_in_db.member_limit == 6
+
+
+async def test_rooms_with_no_body_return_201_and_room_with_defaults(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+) -> None:
+    r = await client.post("/rooms", headers=auth_headers)
+    assert r.status_code == 201
+    body = r.json()
+    assert body["is_public"] is True
+    assert body["member_limit"] == 5
+
+
+@pytest.mark.parametrize(
+    "limit",
+    [0, 1, 51, 100],
+    ids=["0 far below ge", "1 just below ge", "51 just above le", "100 far above le"],
+)
+async def test_rooms_with_limit_outside_range_return_422_and_no_room_created(
+    client: AsyncClient,
+    session: AsyncSession,
+    auth_headers: dict[str, str],
+    limit: int,
+) -> None:
+    r = await client.post(
+        "/rooms", headers=auth_headers, json={"is_public": True, "member_limit": limit}
+    )
+    assert r.status_code == 422
+    rooms_in_db = (
+        await session.execute(select(func.count()).select_from(Room))
+    ).scalar_one()
+    assert rooms_in_db == 0
+
+
+@pytest.mark.parametrize(
+    "limit", [2, 50], ids=["2 lowest allowed", "50 highest allowed"]
+)
+async def test_rooms_with_limit_at_range_ends_return_201(
+    client: AsyncClient,
+    session: AsyncSession,
+    auth_headers: dict[str, str],
+    limit: int,
+) -> None:
+    r = await client.post(
+        "/rooms", headers=auth_headers, json={"is_public": True, "member_limit": limit}
+    )
+    assert r.status_code == 201
+    assert r.json()["member_limit"] == limit
+
+    room_in_db = await session.scalar(
+        select(Room).where(Room.id == uuid.UUID(r.json()["id"]))
+    )
+    assert room_in_db is not None
+    assert room_in_db.member_limit == limit
+
+
+async def test_get_rooms_without_login_return_401(client: AsyncClient) -> None:
+    r = await client.get("/rooms")
+    assert r.status_code == 401
+
+
+async def create_test_rooms(session: AsyncSession, user: User) -> list[Room]:
+    r1 = Room(code="AAAAAAA", member_limit=7, is_public=True)  # public, no members
+    r2 = Room(code="BBBBBBB", member_limit=5, is_public=True)  # public, 1 member
+    r3 = Room(code="ZZZZZZZ", member_limit=4, is_public=False)  # private
+    session.add_all([r1, r2, r3])
+    await session.flush()
+    session.add(RoomMember(user_id=user.id, room_id=r2.id))
+    await session.commit()
+    return [r1, r2]
+
+
+async def test_get_rooms_return_list_of_public_rooms(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    user: User,
+    session: AsyncSession,
+) -> None:
+    r1, r2 = await create_test_rooms(session, user)
+    r = await client.get("/rooms", headers=auth_headers)
+    assert r.status_code == 200
+    expected: list[dict[str, Any]] = [
+        {"id": str(r1.id), "code": "AAAAAAA", "member_limit": 7, "member_count": 0},
+        {"id": str(r2.id), "code": "BBBBBBB", "member_limit": 5, "member_count": 1},
+    ]
+    # The endpoint orders by Room.id. Sorting the id strings gives the same order.
+    assert r.json() == sorted(expected, key=lambda item: item["id"])
+
+
+@contextmanager
+def count_statements(engine: AsyncEngine) -> Iterator[list[str]]:
+    statements: list[str] = []
+
+    def on_execute(
+        conn: Any,
+        cursor: Any,
+        statement: str,
+        parameters: Any,
+        context: Any,
+        executemany: bool,
+    ) -> None:
+        statements.append(statement)
+
+    event.listen(engine.sync_engine, "before_cursor_execute", on_execute)
+    try:
+        yield statements
+    finally:
+        event.remove(engine.sync_engine, "before_cursor_execute", on_execute)
+
+
+async def add_room(
+    session: AsyncSession, code: str, is_public: bool, member_limit: int
+) -> Room:
+    r = Room(code=code, is_public=is_public, member_limit=member_limit)
+    session.add(r)
+    await session.flush()
+    return r
+
+
+async def test_number_of_db_statements_does_not_grow_with_rooms(
+    client: AsyncClient,
+    session: AsyncSession,
+    engine: AsyncEngine,
+    auth_headers: dict[str, str],
+) -> None:
+    for code in ["AAAAAAA", "BBBBBBB", "CCCCCCC"]:
+        await add_room(session, code, is_public=True, member_limit=5)
+    await session.commit()
+    with count_statements(engine) as statements1:
+        r = await client.get("/rooms", headers=auth_headers)
+    assert r.status_code == 200
+    assert len(r.json()) == 3
+
+    for code in [
+        "DDDDDDD",
+        "EEEEEEE",
+        "FFFFFFF",
+        "GGGGGGG",
+        "HHHHHHH",
+        "IIIIIII",
+        "JJJJJJJ",
+    ]:
+        await add_room(session, code, is_public=True, member_limit=5)
+    await session.commit()
+    with count_statements(engine) as statements2:
+        r = await client.get("/rooms", headers=auth_headers)
+    assert r.status_code == 200
+    assert len(r.json()) == 10
+
+    ids = [item["id"] for item in r.json()]
+    assert ids == sorted(ids)
+
+    assert len(statements1) == len(statements2)
