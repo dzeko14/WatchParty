@@ -10,6 +10,7 @@ class RoomRead(BaseModel):
     code: str
     member_limit: int
     is_public: bool
+    host_id: uuid.UUID | None
 
 
 class PublicRoomRead(BaseModel):

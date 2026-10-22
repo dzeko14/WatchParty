@@ -2,6 +2,7 @@ import asyncio
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -16,7 +17,7 @@ from app.core.security import create_access_token, hash_password
 from app.models.room import Room, RoomMember
 from app.models.user import User
 
-REG = {"email": "ihor@example.com", "password": "secret12"}
+REG = {"email": "stepan@gmail.com", "password": "secret12"}
 
 
 async def setup_full_room(
@@ -39,6 +40,24 @@ async def setup_full_room(
     session.add(RoomMember(user_id=u2.id, room_id=room.id))
     await session.commit()
     return room
+
+
+T0 = datetime(2026, 1, 1, tzinfo=UTC)
+
+
+async def add_room_with_members(
+    session: AsyncSession, host: User, members: list[User]
+) -> Room:
+    session.add_all(members)
+    r = Room(code="AAAAAAA", host_id=host.id)
+    session.add(r)
+    await session.flush()
+    for i, u in enumerate([host, *members]):
+        session.add(
+            RoomMember(user_id=u.id, room_id=r.id, joined_at=T0 + timedelta(minutes=i))
+        )
+    await session.commit()
+    return r
 
 
 async def test_post_room_no_auth_get_401(client: AsyncClient) -> None:
@@ -433,3 +452,263 @@ async def test_number_of_db_statements_does_not_grow_with_rooms(
     assert ids == sorted(ids)
 
     assert len(statements1) == len(statements2)
+
+
+async def test_post_rooms_return_with_current_user_as_host(
+    client: AsyncClient,
+    session: AsyncSession,
+    user: User,
+    auth_headers: dict[str, str],
+) -> None:
+    r = await client.post("/rooms", headers=auth_headers)
+    assert r.status_code == 201
+    room_id = uuid.UUID(r.json()["id"])
+    host_id = uuid.UUID(r.json()["host_id"])
+    assert host_id == user.id
+    room_host_id_from_db = await session.scalar(
+        select(Room.host_id).where(Room.id == room_id)
+    )
+    assert room_host_id_from_db == host_id
+
+
+async def test_handover_the_role_to_a_member_returns_200(
+    client: AsyncClient,
+    session: AsyncSession,
+    user: User,
+    auth_headers: dict[str, str],
+) -> None:
+    u = User(
+        email="stepan@gmail.com",
+        password_hash=await hash_password("secret12"),
+        display_name="Ihor",
+    )
+    room = await add_room_with_members(session, host=user, members=[u])
+
+    r = await client.put(
+        f"/rooms/{room.code}/host", headers=auth_headers, json={"user_id": str(u.id)}
+    )
+    assert r.status_code == 200
+    room_new_host_id = uuid.UUID(r.json()["host_id"])
+    assert room_new_host_id == u.id
+    room_host_id_from_db = await session.scalar(
+        select(Room.host_id).where(Room.id == room.id)
+    )
+    assert room_host_id_from_db == room_new_host_id
+
+
+async def test_not_host_try_to_change_host_return_403(
+    client: AsyncClient,
+    session: AsyncSession,
+    room: Room,
+) -> None:
+    u = User(
+        email="stepan@gmail.com",
+        password_hash=await hash_password("secret12"),
+        display_name="Ihor",
+    )
+    session.add(u)
+    await session.commit()
+    token = create_access_token(str(u.id))
+    header = {"Authorization": f"Bearer {token}"}
+
+    r = await client.put(
+        f"/rooms/{room.code}/host", headers=header, json={"user_id": str(u.id)}
+    )
+    assert r.status_code == 403
+
+
+async def test_handover_to_not_member_return_409(
+    client: AsyncClient,
+    session: AsyncSession,
+    user: User,
+    auth_headers: dict[str, str],
+) -> None:
+    room = await add_room_with_members(session, host=user, members=[])
+    u = User(
+        email="stepan@gmail.com",
+        password_hash=await hash_password("secret12"),
+        display_name="Ihor",
+    )
+    session.add(u)  # not a member
+    await session.commit()
+
+    r = await client.put(
+        f"/rooms/{room.code}/host", headers=auth_headers, json={"user_id": str(u.id)}
+    )
+    assert r.status_code == 409
+    r_from_db = await session.scalar(select(Room.host_id).where(Room.id == room.id))
+    assert user.id == r_from_db
+
+
+async def test_handover_if_not_host_return_403(
+    client: AsyncClient,
+    session: AsyncSession,
+    user: User,
+) -> None:
+    u = User(
+        email="stepan@gmail.com",
+        password_hash=await hash_password("secret12"),
+        display_name="Ihor",
+    )
+    room = await add_room_with_members(session, host=user, members=[u])
+
+    token = create_access_token(str(u.id))
+    auth_header = {"Authorization": f"Bearer {token}"}
+
+    r = await client.put(
+        f"/rooms/{room.code}/host", headers=auth_header, json={"user_id": str(u.id)}
+    )
+    assert r.status_code == 403
+    r_from_db = await session.scalar(select(Room.host_id).where(Room.id == room.id))
+    assert user.id == r_from_db
+
+
+async def test_handover_to_not_member_if_not_host_return_403(
+    client: AsyncClient,
+    session: AsyncSession,
+    user: User,
+) -> None:
+    u = User(
+        email="stepan@gmail.com",
+        password_hash=await hash_password("secret12"),
+        display_name="Ihor",
+    )
+    room = await add_room_with_members(session, host=user, members=[u])
+    u2 = User(
+        email="vasyl@gmail.com",
+        password_hash=await hash_password("secret12"),
+        display_name="Vasyl",
+    )
+    session.add(u2)  # not a member
+    await session.commit()
+
+    token = create_access_token(str(u.id))
+    auth_header = {"Authorization": f"Bearer {token}"}
+
+    r = await client.put(
+        f"/rooms/{room.code}/host", headers=auth_header, json={"user_id": str(u2.id)}
+    )
+    assert r.status_code == 403
+    r_from_db = await session.scalar(select(Room.host_id).where(Room.id == room.id))
+    assert user.id == r_from_db
+
+
+async def test_handover_no_login_401(
+    client: AsyncClient,
+    session: AsyncSession,
+    room: Room,
+) -> None:
+    u = User(
+        email="stepan@gmail.com",
+        password_hash=await hash_password("secret12"),
+        display_name="Ihor",
+    )
+    session.add(u)
+    await session.flush()
+
+    session.add(RoomMember(user_id=u.id, room_id=room.id))
+    await session.commit()
+
+    r = await client.put(f"/rooms/{room.code}/host", json={"user_id": str(u.id)})
+    assert r.status_code == 401
+    assert r.json()["detail"] == "Not authenticated"
+
+
+async def test_handover_unknown_code_404(
+    client: AsyncClient, session: AsyncSession, room: Room, auth_headers: dict[str, str]
+) -> None:
+    u = User(
+        email="stepan@gmail.com",
+        password_hash=await hash_password("secret12"),
+        display_name="Ihor",
+    )
+    session.add(u)
+    await session.flush()
+
+    session.add(RoomMember(user_id=u.id, room_id=room.id))
+    await session.commit()
+
+    r = await client.put(
+        "/rooms/WWWWWWW/host", headers=auth_headers, json={"user_id": str(u.id)}
+    )
+    assert r.status_code == 404
+    assert r.json()["detail"] == "There is no room with such code"
+
+
+async def test_handover_not_valid_user_id_body_return_422(
+    client: AsyncClient, auth_headers: dict[str, str], room: Room
+) -> None:
+    r = await client.put(
+        f"/rooms/{room.code}/host", headers=auth_headers, json={"user_id": "123"}
+    )
+    assert r.status_code == 422
+
+
+async def test_host_leaves_longest_member_become_host(
+    client: AsyncClient, session: AsyncSession, user: User, auth_headers: dict[str, str]
+) -> None:
+    # u1 joins before u2, but has the larger id. Ordering by user_id would pick u2;
+    # ordering by joined_at picks u1. So a wrong order fails this test every time.
+    u1 = User(
+        id=uuid.UUID(int=2),
+        email="stepan@gmail.com",
+        password_hash=await hash_password("secret12"),
+        display_name="Ihor",
+    )
+
+    u2 = User(
+        id=uuid.UUID(int=1),
+        email="vasyl@gmail.com",
+        password_hash=await hash_password("secret12"),
+        display_name="Vasyl",
+    )
+    room = await add_room_with_members(session=session, host=user, members=[u1, u2])
+
+    r = await client.delete(f"/rooms/{room.code}/members/me", headers=auth_headers)
+    assert r.status_code == 204
+    r_from_db = await session.scalar(select(Room.host_id).where(Room.id == room.id))
+    assert r_from_db == u1.id
+
+
+async def test_not_the_host_member_leaves_the_host_not_change(
+    client: AsyncClient,
+    session: AsyncSession,
+    user: User,
+) -> None:
+    u1 = User(
+        email="stepan@gmail.com",
+        password_hash=await hash_password("secret12"),
+        display_name="Ihor",
+    )
+    u2 = User(
+        email="vasyl@gmail.com",
+        password_hash=await hash_password("secret12"),
+        display_name="Vasyl",
+    )
+    room = await add_room_with_members(session, host=user, members=[u1, u2])
+    # The host must not be the member who joined first. Otherwise a leave that
+    # always picks "the next host" picks the same host again, and the test cannot
+    # see that bug. So u2, the last to join, is the host here.
+    room.host_id = u2.id
+    await session.commit()
+
+    token = create_access_token(str(u1.id))
+    auth_header = {"Authorization": f"Bearer {token}"}
+    r = await client.delete(f"/rooms/{room.code}/members/me", headers=auth_header)
+    assert r.status_code == 204
+    r_from_db = await session.scalar(select(Room.host_id).where(Room.id == room.id))
+    assert r_from_db == u2.id
+
+
+async def test_last_member_leave_room_room_deletes(
+    client: AsyncClient,
+    session: AsyncSession,
+    user: User,
+    auth_headers: dict[str, str],
+) -> None:
+    room = await add_room_with_members(session, host=user, members=[])
+    r = await client.delete(f"/rooms/{room.code}/members/me", headers=auth_headers)
+    assert r.status_code == 204
+
+    room_from_db = await session.scalar(select(Room).where(Room.id == room.id))
+    assert room_from_db is None
