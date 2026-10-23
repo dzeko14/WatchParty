@@ -117,10 +117,6 @@ async def leave_room(session: SessionDep, user: CurrentUserDep, code: str) -> No
     if room_member is None:
         raise HTTPException(404, "User is not a part of a room")
 
-    if user.id != room.host_id:
-        await session.commit()
-        return
-
     next_host_id = await session.scalar(
         select(RoomMember.user_id)
         .where(RoomMember.room_id == room.id)
@@ -130,7 +126,7 @@ async def leave_room(session: SessionDep, user: CurrentUserDep, code: str) -> No
 
     if next_host_id is None:
         await session.scalar(delete(Room).where(Room.id == room.id).returning(Room))
-    else:
+    elif user.id == room.host_id:
         room.host_id = next_host_id
 
     await session.commit()
