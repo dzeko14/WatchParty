@@ -121,8 +121,6 @@ async def leave_room(session: SessionDep, user: CurrentUserDep, code: str) -> No
         await session.commit()
         return
 
-    await session.flush()
-
     next_host_id = await session.scalar(
         select(RoomMember.user_id)
         .where(RoomMember.room_id == room.id)
@@ -134,7 +132,6 @@ async def leave_room(session: SessionDep, user: CurrentUserDep, code: str) -> No
         await session.scalar(delete(Room).where(Room.id == room.id).returning(Room))
     else:
         room.host_id = next_host_id
-        session.add(room)
 
     await session.commit()
 
