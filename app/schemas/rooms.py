@@ -27,3 +27,9 @@ class RoomCreate(BaseModel):
 
     is_public: bool = True
     member_limit: int = Field(default=5, ge=2, le=50)
+
+
+class RoomHandover(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    user_id: uuid.UUID

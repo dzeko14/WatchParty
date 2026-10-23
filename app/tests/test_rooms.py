@@ -676,11 +676,13 @@ async def test_not_the_host_member_leaves_the_host_not_change(
     user: User,
 ) -> None:
     u1 = User(
+        id=uuid.UUID(int=2),
         email="stepan@gmail.com",
         password_hash=await hash_password("secret12"),
         display_name="Ihor",
     )
     u2 = User(
+        id=uuid.UUID(int=1),
         email="vasyl@gmail.com",
         password_hash=await hash_password("secret12"),
         display_name="Vasyl",
