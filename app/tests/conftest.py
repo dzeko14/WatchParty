@@ -55,9 +55,7 @@ async def session(engine: AsyncEngine) -> AsyncIterator[AsyncSession]:
 
 
 @pytest.fixture
-async def client(
-    engine: AsyncEngine, session: AsyncSession
-) -> AsyncIterator[AsyncClient]:
+def db_override(engine: AsyncEngine) -> Iterator[None]:
     factory = async_sessionmaker(engine, expire_on_commit=False)
 
     async def override_get_session() -> AsyncIterator[AsyncSession]:
@@ -65,11 +63,18 @@ async def client(
             yield s
 
     app.dependency_overrides[get_session] = override_get_session
+    yield
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+async def client(
+    db_override: None, session: AsyncSession
+) -> AsyncIterator[AsyncClient]:
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://test"
     ) as c:
         yield c
-    app.dependency_overrides.clear()
 
 
 @pytest.fixture

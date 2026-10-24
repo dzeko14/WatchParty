@@ -1,14 +1,11 @@
 import asyncio
 import uuid
-from collections.abc import Iterator
-from contextlib import contextmanager
-from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
 from httpx import AsyncClient
 from pytest import MonkeyPatch
-from sqlalchemy import event, func, select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
@@ -16,6 +13,7 @@ from app.api.routers.rooms import CODE_ALPHABET
 from app.core.security import create_access_token, hash_password
 from app.models.room import Room, RoomMember
 from app.models.user import User
+from app.tests.helpers import add_room_with_members, count_statements
 
 REG = {"email": "stepan@gmail.com", "password": "secret12"}
 
@@ -40,24 +38,6 @@ async def setup_full_room(
     session.add(RoomMember(user_id=u2.id, room_id=room.id))
     await session.commit()
     return room
-
-
-T0 = datetime(2026, 1, 1, tzinfo=UTC)
-
-
-async def add_room_with_members(
-    session: AsyncSession, host: User, members: list[User]
-) -> Room:
-    session.add_all(members)
-    r = Room(code="AAAAAAA", host_id=host.id)
-    session.add(r)
-    await session.flush()
-    for i, u in enumerate([host, *members]):
-        session.add(
-            RoomMember(user_id=u.id, room_id=r.id, joined_at=T0 + timedelta(minutes=i))
-        )
-    await session.commit()
-    return r
 
 
 async def test_post_room_no_auth_get_401(client: AsyncClient) -> None:
@@ -386,27 +366,6 @@ async def test_get_rooms_return_list_of_public_rooms(
     ]
     # The endpoint orders by Room.id. Sorting the id strings gives the same order.
     assert r.json() == sorted(expected, key=lambda item: item["id"])
-
-
-@contextmanager
-def count_statements(engine: AsyncEngine) -> Iterator[list[str]]:
-    statements: list[str] = []
-
-    def on_execute(
-        conn: Any,
-        cursor: Any,
-        statement: str,
-        parameters: Any,
-        context: Any,
-        executemany: bool,
-    ) -> None:
-        statements.append(statement)
-
-    event.listen(engine.sync_engine, "before_cursor_execute", on_execute)
-    try:
-        yield statements
-    finally:
-        event.remove(engine.sync_engine, "before_cursor_execute", on_execute)
 
 
 async def add_room(
