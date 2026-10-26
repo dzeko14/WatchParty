@@ -1,0 +1,39 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>WatchParty test client</title>
+<style>
+  body { font: 15px system-ui, sans-serif; margin: 2rem; max-width: 44rem; }
+  label { display: block; margin: .3rem 0; }
+  input { font: inherit; }
+  #log { border: 1px solid #bbb; padding: .5rem; height: 18rem; overflow: auto; white-space: pre-wrap; }
+</style>
+<h1>WatchParty test client</h1>
+<label>Server <input id="server" size="30" value="ws://localhost:8000"></label>
+<label>Room code <input id="code" size="9"></label>
+<label>Access token <input id="token" size="50"></label>
+<button id="connect">Connect</button>
+<button id="disconnect">Disconnect</button>
+<form id="send"><label>Message <input id="text" size="36" autocomplete="off"> <button>Send</button></label></form>
+<div id="log"></div>
+<script>
+  const $ = (id) => document.getElementById(id);
+  const log = (line) => { $("log").textContent += line + "\n"; $("log").scrollTop = 1e9; };
+  let ws = null;
+
+  $("connect").onclick = () => {
+    if (ws) ws.close(1000, "reconnect");
+    const code = encodeURIComponent($("code").value.trim());
+    const token = encodeURIComponent($("token").value.trim());
+    ws = new WebSocket(`${$("server").value}/rooms/${code}/ws?token=${token}`);
+    ws.onopen = () => log("open");
+    ws.onmessage = (e) => log("message: " + e.data);
+    ws.onerror = () => log("error (a browser is not told why)");
+    ws.onclose = (e) => log(`close: code=${e.code} reason=${JSON.stringify(e.reason)}`);
+  };
+  $("disconnect").onclick = () => { if (ws) ws.close(1000, "bye"); };
+  $("send").onsubmit = (e) => {
+    e.preventDefault();
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send($("text").value);
+    $("text").value = "";
+  };
+</script>

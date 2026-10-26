@@ -2,7 +2,7 @@ import uuid
 
 import pytest
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import create_access_token
 from app.tests.helpers import (
@@ -23,7 +23,9 @@ from app.tests.helpers import (
     ],
     ids=["no token", "wrong token", "valid token for non existing user"],
 )
-async def test_bad_token_is_closed(session: AsyncSession, query: str) -> None:
+async def test_bad_token_is_closed(
+    db_override: None, session: AsyncSession, query: str
+) -> None:
     u = await add_user(session=session, n=1, name="Ann")
 
     await add_room_with_members(session=session, host=u, members=[])
@@ -33,6 +35,7 @@ async def test_bad_token_is_closed(session: AsyncSession, query: str) -> None:
 
 
 async def test_unknown_room_is_closed(
+    db_override: None,
     session: AsyncSession,
 ) -> None:
     u = await add_user(session=session, n=1, name="Ann")
@@ -44,6 +47,7 @@ async def test_unknown_room_is_closed(
 
 
 async def test_member_of_another_room_is_closed(
+    db_override: None,
     session: AsyncSession,
 ) -> None:
     ann = await add_user(session=session, n=1, name="Ann")
@@ -59,6 +63,7 @@ async def test_member_of_another_room_is_closed(
 
 
 async def test_member_gets_own_message_back(
+    db_override: None,
     session: AsyncSession,
 ) -> None:
     ann = await add_user(session=session, n=1, name="Ann")
@@ -72,8 +77,8 @@ async def test_member_gets_own_message_back(
 
 
 async def test_open_socket_holds_no_db_transaction(
+    db_override: None,
     session: AsyncSession,
-    engine: AsyncEngine,
 ) -> None:
     ann = await add_user(session=session, n=1, name="Ann")
 

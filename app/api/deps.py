@@ -1,5 +1,5 @@
 import uuid
-from typing import Annotated
+from typing import Annotated, Any
 
 import jwt
 from fastapi import Depends, HTTPException, status
@@ -23,13 +23,17 @@ CREDENTIALS_ERROR = HTTPException(
 )
 
 
+def decode_token(token: str) -> dict[str, Any]:
+    return jwt.decode(
+        jwt=token,
+        key=settings.jwt_secret_key,
+        algorithms=[settings.jwt_algorithm],
+    )
+
+
 async def get_current_user(token: TokenDep, session: SessionDep) -> User:
     try:
-        payload = jwt.decode(
-            jwt=token.credentials,
-            key=settings.jwt_secret_key,
-            algorithms=[settings.jwt_algorithm],
-        )
+        payload = decode_token(token=token.credentials)
         user_id = uuid.UUID(payload["sub"])
         user = await session.get(User, user_id)
         if user is None:
