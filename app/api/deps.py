@@ -1,5 +1,5 @@
 import uuid
-from typing import Annotated, Any
+from typing import Annotated
 
 import jwt
 from fastapi import Depends, HTTPException, status
@@ -23,24 +23,24 @@ CREDENTIALS_ERROR = HTTPException(
 )
 
 
-def decode_token(token: str) -> dict[str, Any]:
-    return jwt.decode(
-        jwt=token,
-        key=settings.jwt_secret_key,
-        algorithms=[settings.jwt_algorithm],
-    )
+async def user_from_token(token: str, session: AsyncSession) -> User | None:
+    try:
+        payload = jwt.decode(
+            jwt=token,
+            key=settings.jwt_secret_key,
+            algorithms=[settings.jwt_algorithm],
+        )
+        user_id = uuid.UUID(payload["sub"])
+    except jwt.InvalidTokenError, KeyError, ValueError:
+        return None
+    return await session.get(User, user_id)
 
 
 async def get_current_user(token: TokenDep, session: SessionDep) -> User:
-    try:
-        payload = decode_token(token=token.credentials)
-        user_id = uuid.UUID(payload["sub"])
-        user = await session.get(User, user_id)
-        if user is None:
-            raise CREDENTIALS_ERROR
-        return user
-    except (jwt.InvalidTokenError, KeyError, ValueError) as exc:
-        raise CREDENTIALS_ERROR from exc
+    user = await user_from_token(token.credentials, session)
+    if user is None:
+        raise CREDENTIALS_ERROR
+    return user
 
 
 CurrentUserDep = Annotated[User, Depends(get_current_user)]

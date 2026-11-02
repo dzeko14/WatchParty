@@ -19,7 +19,7 @@ from app.tests.helpers import (
     [
         "/rooms/AAAAAAA/ws",
         "/rooms/AAAAAAA/ws?token=not-a-jwt",
-        f"/rooms/AAAAAAA/ws?token={create_access_token(str(uuid.UUID(int=99)))})",
+        f"/rooms/AAAAAAA/ws?token={create_access_token(str(uuid.UUID(int=99)))}",
     ],
     ids=["no token", "wrong token", "valid token for non existing user"],
 )
