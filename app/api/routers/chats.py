@@ -1,5 +1,4 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from jwt import InvalidTokenError
 from sqlalchemy import select
 
 from app.api.deps import SessionDep, user_from_token
@@ -13,11 +12,7 @@ async def room_socket(
     websocket: WebSocket, session: SessionDep, code: str, token: str = ""
 ) -> None:
     await websocket.accept()
-    try:
-        user = await user_from_token(token=token, session=session)
-    except InvalidTokenError:
-        await websocket.close(code=4001, reason="Invalid token")
-        return
+    user = await user_from_token(token=token, session=session)
 
     if user is None:
         await websocket.close(code=4001, reason="No user with such id")
