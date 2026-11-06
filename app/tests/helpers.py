@@ -29,6 +29,14 @@ async def ws_connect(url: str) -> AsyncIterator[AsyncWebSocketSession]:
         yield ws
 
 
+@asynccontextmanager
+async def join(url: str) -> AsyncIterator[AsyncWebSocketSession]:
+    async with ws_connect(url) as ws:
+        r = await ws.receive_json(timeout=1)
+        assert r["type"] == "ready"
+        yield ws
+
+
 async def close_code(url: str) -> int:
     async with ws_connect(url) as ws:
         try:

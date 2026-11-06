@@ -3,6 +3,7 @@ from sqlalchemy import select
 
 from app.api.deps import SessionDep, user_from_token
 from app.models.room import Room, RoomMember
+from app.realtime.manager import manager
 
 router = APIRouter(prefix="/rooms", tags=["rooms_web_socket"])
 
@@ -31,15 +32,22 @@ async def room_socket(
         return
     await session.commit()
 
+    manager.connect(room_id=room.id, websocket=websocket)
+
     try:
+        await websocket.send_json({"type": "ready"})
         while True:
             request_text = await websocket.receive_text()
-            await websocket.send_json(
-                {
+            await manager.broadcast(
+                room_id=room.id,
+                message={
+                    "type": "message",
                     "user_id": str(user.id),
                     "name": user.display_name,
                     "text": request_text,
-                }
+                },
             )
     except WebSocketDisconnect:
         pass
+    finally:
+        manager.disconnect(room_id=room.id, websocket=websocket)
