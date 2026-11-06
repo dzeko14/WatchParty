@@ -20,7 +20,7 @@ class ConnectionManager:
             pass
 
     async def broadcast(self, room_id: uuid.UUID, message: dict[str, Any]) -> None:
-        for ws in self.rooms.get(room_id, []):
+        for ws in list(self.rooms.get(room_id, [])):
             try:
                 await ws.send_json(message)
             except WebSocketDisconnect:
