@@ -5,7 +5,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import create_access_token
-from app.realtime.manager import manager
+from app.realtime.manager import QUEUE_SIZE, manager
 from app.tests.helpers import (
     add_room_with_members,
     add_user,
@@ -199,3 +199,21 @@ async def test_room_is_forgotten_when_the_handler_fails(
         await a.send_bytes(b"not text")
 
     assert room.id not in manager.rooms
+
+
+async def test_a_client_that_falls_behind_is_dropped(
+    db_override: None,
+    session: AsyncSession,
+) -> None:
+    ann = await add_user(session=session, n=1, name="Ann")
+    bob = await add_user(session=session, n=2, name="Bob")
+    room = await add_room_with_members(session=session, host=ann, members=[bob])
+
+    async with join(f"/rooms/AAAAAAA/ws?token={token_for(ann)}") as a:
+        for i in range(QUEUE_SIZE + 1):
+            manager.broadcast(room.id, {"type": "message", "text": str(i)})
+
+        async with join(f"/rooms/AAAAAAA/ws?token={token_for(bob)}") as b:
+            await a.send_text("still here?")
+            with pytest.raises(TimeoutError):
+                await b.receive_json(timeout=0.2)

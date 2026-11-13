@@ -1,11 +1,16 @@
+import asyncio
+import logging
+
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from sqlalchemy import select
 
 from app.api.deps import SessionDep, user_from_token
 from app.models.room import Room, RoomMember
-from app.realtime.manager import manager
+from app.realtime.manager import manager, send_loop
 
 router = APIRouter(prefix="/rooms", tags=["rooms_web_socket"])
+
+logger = logging.getLogger(__name__)
 
 
 @router.websocket("/{code}/ws")
@@ -32,22 +37,28 @@ async def room_socket(
         return
     await session.commit()
 
-    manager.connect(room_id=room.id, websocket=websocket)
+    queue = manager.connect(room_id=room.id, websocket=websocket)
 
     try:
-        await websocket.send_json({"type": "ready"})
-        while True:
-            request_text = await websocket.receive_text()
-            await manager.broadcast(
-                room_id=room.id,
-                message={
-                    "type": "message",
-                    "user_id": str(user.id),
-                    "name": user.display_name,
-                    "text": request_text,
-                },
-            )
-    except WebSocketDisconnect:
+        queue.put_nowait({"type": "ready"})
+        async with asyncio.TaskGroup() as tg:
+            tg.create_task(send_loop(websocket=websocket, queue=queue))
+            while True:
+                request_text = await websocket.receive_text()
+                manager.broadcast(
+                    room_id=room.id,
+                    message={
+                        "type": "message",
+                        "user_id": str(user.id),
+                        "name": user.display_name,
+                        "text": request_text,
+                    },
+                )
+    except* WebSocketDisconnect:
         pass
+    except* asyncio.QueueShutDown as e:
+        logger.warning(e.exceptions)
+    except* TimeoutError as e:
+        logger.warning(e.exceptions)
     finally:
         manager.disconnect(room_id=room.id, websocket=websocket)
