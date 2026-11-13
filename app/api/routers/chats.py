@@ -56,9 +56,13 @@ async def room_socket(
                 )
     except* WebSocketDisconnect:
         pass
-    except* asyncio.QueueShutDown as e:
-        logger.warning(e.exceptions)
-    except* TimeoutError as e:
-        logger.warning(e.exceptions)
+    except* (asyncio.QueueShutDown, TimeoutError) as e:
+        reason = type(e.exceptions[0]).__name__
+        logger.warning(
+            "dropped a slow worker: user %s, room %s, %s",
+            str(user.id),
+            str(room.id),
+            reason,
+        )
     finally:
         manager.disconnect(room_id=room.id, websocket=websocket)
