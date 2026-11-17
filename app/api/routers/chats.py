@@ -39,7 +39,12 @@ async def room_socket(
 
     if not any(u["user_id"] == str(user.id) for u in manager.online(room_id=room.id)):
         manager.broadcast(
-            room_id=room.id, message={"type": "joined", "name": str(user.display_name)}
+            room_id=room.id,
+            message={
+                "type": "joined",
+                "name": user.display_name,
+                "user_id": str(user.id),
+            },
         )
 
     queue = manager.connect(
@@ -78,5 +83,9 @@ async def room_socket(
         ):
             manager.broadcast(
                 room_id=room.id,
-                message={"type": "left", "name": str(user.display_name)},
+                message={
+                    "type": "left",
+                    "name": str(user.display_name),
+                    "user_id": str(user.id),
+                },
             )

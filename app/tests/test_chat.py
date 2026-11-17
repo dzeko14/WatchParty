@@ -231,14 +231,14 @@ async def test_ready_lists_who_is_online(
     await add_room_with_members(session=session, host=ann, members=[bob])
 
     async with ws_connect(f"/rooms/AAAAAAA/ws?token={token_for(ann)}") as a:
-        ann_response = await a.receive_json()
+        ann_response = await a.receive_json(timeout=0.2)
         assert ann_response == {
             "type": "ready",
             "online": [{"user_id": str(ann.id), "name": "Ann"}],
         }
 
         async with ws_connect(f"/rooms/AAAAAAA/ws?token={token_for(bob)}") as b:
-            bob_response = await b.receive_json()
+            bob_response = await b.receive_json(timeout=0.2)
             assert bob_response == {
                 "type": "ready",
                 "online": [
@@ -258,10 +258,10 @@ async def test_others_hear_joined_and_left(
 
     async with join(f"/rooms/AAAAAAA/ws?token={token_for(ann)}") as a:
         async with join(f"/rooms/AAAAAAA/ws?token={token_for(bob)}") as b1:
-            ann_response = await a.receive_json()
+            ann_response = await a.receive_json(timeout=0.2)
             assert ann_response == {"type": "joined", "name": "Bob"}
             async with ws_connect(f"/rooms/AAAAAAA/ws?token={token_for(bob)}") as b2:
-                bob_response = await b2.receive_json()
+                bob_response = await b2.receive_json(timeout=0.2)
                 assert bob_response == {
                     "type": "ready",
                     "online": [
@@ -273,7 +273,7 @@ async def test_others_hear_joined_and_left(
                     await b1.receive_json(timeout=0.2)
             with pytest.raises(TimeoutError):
                 await b1.receive_json(timeout=0.2)
-        ann_response = await a.receive_json()
+        ann_response = await a.receive_json(timeout=0.2)
         assert ann_response == {"type": "left", "name": "Bob"}
 
 
@@ -289,7 +289,7 @@ async def test_a_dropped_client_is_announced_once(
         join(f"/rooms/AAAAAAA/ws?token={token_for(ann)}") as a,
         join(f"/rooms/AAAAAAA/ws?token={token_for(bob)}"),
     ):
-        ann_response = await a.receive_json()
+        ann_response = await a.receive_json(timeout=0.2)
         assert ann_response == {"type": "joined", "name": "Bob"}
 
         [bob_queue] = [
