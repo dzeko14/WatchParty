@@ -37,10 +37,17 @@ async def room_socket(
         return
     await session.commit()
 
-    queue = manager.connect(room_id=room.id, websocket=websocket)
+    if not any(u["user_id"] == str(user.id) for u in manager.online(room_id=room.id)):
+        manager.broadcast(
+            room_id=room.id, message={"type": "joined", "name": str(user.display_name)}
+        )
+
+    queue = manager.connect(
+        room_id=room.id, websocket=websocket, user_id=user.id, name=user.display_name
+    )
 
     try:
-        queue.put_nowait({"type": "ready"})
+        queue.put_nowait({"type": "ready", "online": manager.online(room_id=room.id)})
         async with asyncio.TaskGroup() as tg:
             tg.create_task(send_loop(websocket=websocket, queue=queue))
             while True:
@@ -66,3 +73,10 @@ async def room_socket(
         )
     finally:
         manager.disconnect(room_id=room.id, websocket=websocket)
+        if not any(
+            u["user_id"] == str(user.id) for u in manager.online(room_id=room.id)
+        ):
+            manager.broadcast(
+                room_id=room.id,
+                message={"type": "left", "name": str(user.display_name)},
+            )

@@ -12,6 +12,7 @@ from app.tests.helpers import (
     close_code,
     join,
     token_for,
+    ws_connect,
 )
 
 
@@ -118,6 +119,8 @@ async def test_message_reaches_everyone_in_the_room(
         await a.send_text("hi")
         b_result = await b.receive_json(timeout=1)
         a_result = await a.receive_json(timeout=0.2)
+        assert a_result == {"type": "joined", "name": "Bob"}
+        a_result = await a.receive_json(timeout=0.2)
         expect_result = {
             "type": "message",
             "user_id": str(ann.id),
@@ -217,3 +220,87 @@ async def test_a_client_that_falls_behind_is_dropped(
             await a.send_text("still here?")
             with pytest.raises(TimeoutError):
                 await b.receive_json(timeout=0.2)
+
+
+async def test_ready_lists_who_is_online(
+    db_override: None,
+    session: AsyncSession,
+) -> None:
+    ann = await add_user(session=session, n=1, name="Ann")
+    bob = await add_user(session=session, n=2, name="Bob")
+    await add_room_with_members(session=session, host=ann, members=[bob])
+
+    async with ws_connect(f"/rooms/AAAAAAA/ws?token={token_for(ann)}") as a:
+        ann_response = await a.receive_json()
+        assert ann_response == {
+            "type": "ready",
+            "online": [{"user_id": str(ann.id), "name": "Ann"}],
+        }
+
+        async with ws_connect(f"/rooms/AAAAAAA/ws?token={token_for(bob)}") as b:
+            bob_response = await b.receive_json()
+            assert bob_response == {
+                "type": "ready",
+                "online": [
+                    {"user_id": str(ann.id), "name": "Ann"},
+                    {"user_id": str(bob.id), "name": "Bob"},
+                ],
+            }
+
+
+async def test_others_hear_joined_and_left(
+    db_override: None,
+    session: AsyncSession,
+) -> None:
+    ann = await add_user(session=session, n=1, name="Ann")
+    bob = await add_user(session=session, n=2, name="Bob")
+    await add_room_with_members(session=session, host=ann, members=[bob])
+
+    async with join(f"/rooms/AAAAAAA/ws?token={token_for(ann)}") as a:
+        async with join(f"/rooms/AAAAAAA/ws?token={token_for(bob)}") as b1:
+            ann_response = await a.receive_json()
+            assert ann_response == {"type": "joined", "name": "Bob"}
+            async with ws_connect(f"/rooms/AAAAAAA/ws?token={token_for(bob)}") as b2:
+                bob_response = await b2.receive_json()
+                assert bob_response == {
+                    "type": "ready",
+                    "online": [
+                        {"user_id": str(ann.id), "name": "Ann"},
+                        {"user_id": str(bob.id), "name": "Bob"},
+                    ],
+                }
+                with pytest.raises(TimeoutError):
+                    await b1.receive_json(timeout=0.2)
+            with pytest.raises(TimeoutError):
+                await b1.receive_json(timeout=0.2)
+        ann_response = await a.receive_json()
+        assert ann_response == {"type": "left", "name": "Bob"}
+
+
+async def test_a_dropped_client_is_announced_once(
+    db_override: None,
+    session: AsyncSession,
+) -> None:
+    ann = await add_user(session=session, n=1, name="Ann")
+    bob = await add_user(session=session, n=2, name="Bob")
+    room = await add_room_with_members(session=session, host=ann, members=[bob])
+
+    async with (
+        join(f"/rooms/AAAAAAA/ws?token={token_for(ann)}") as a,
+        join(f"/rooms/AAAAAAA/ws?token={token_for(bob)}"),
+    ):
+        ann_response = await a.receive_json()
+        assert ann_response == {"type": "joined", "name": "Bob"}
+
+        [bob_queue] = [
+            c.queue for c in manager.rooms[room.id].values() if c.user_id == bob.id
+        ]
+        for _ in range(QUEUE_SIZE):
+            bob_queue.put_nowait({"text": "some text to fill"})
+
+        manager.broadcast(room.id, {"type": "message", "text": "new"})
+        got = [await a.receive_json(timeout=1) for _ in range(2)]
+        assert {"type": "message", "text": "new"} in got
+        assert {"type": "left", "name": "Bob"} in got
+        with pytest.raises(TimeoutError):
+            await a.receive_json(timeout=0.2)
