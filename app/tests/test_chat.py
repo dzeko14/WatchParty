@@ -119,7 +119,7 @@ async def test_message_reaches_everyone_in_the_room(
         await a.send_text("hi")
         b_result = await b.receive_json(timeout=1)
         a_result = await a.receive_json(timeout=0.2)
-        assert a_result == {"type": "joined", "name": "Bob"}
+        assert a_result == {"type": "joined", "name": "Bob", "user_id": str(bob.id)}
         a_result = await a.receive_json(timeout=0.2)
         expect_result = {
             "type": "message",
@@ -259,7 +259,11 @@ async def test_others_hear_joined_and_left(
     async with join(f"/rooms/AAAAAAA/ws?token={token_for(ann)}") as a:
         async with join(f"/rooms/AAAAAAA/ws?token={token_for(bob)}") as b1:
             ann_response = await a.receive_json(timeout=0.2)
-            assert ann_response == {"type": "joined", "name": "Bob"}
+            assert ann_response == {
+                "type": "joined",
+                "name": "Bob",
+                "user_id": str(bob.id),
+            }
             async with ws_connect(f"/rooms/AAAAAAA/ws?token={token_for(bob)}") as b2:
                 bob_response = await b2.receive_json(timeout=0.2)
                 assert bob_response == {
@@ -274,7 +278,7 @@ async def test_others_hear_joined_and_left(
             with pytest.raises(TimeoutError):
                 await b1.receive_json(timeout=0.2)
         ann_response = await a.receive_json(timeout=0.2)
-        assert ann_response == {"type": "left", "name": "Bob"}
+        assert ann_response == {"type": "left", "name": "Bob", "user_id": str(bob.id)}
 
 
 async def test_a_dropped_client_is_announced_once(
@@ -290,7 +294,7 @@ async def test_a_dropped_client_is_announced_once(
         join(f"/rooms/AAAAAAA/ws?token={token_for(bob)}"),
     ):
         ann_response = await a.receive_json(timeout=0.2)
-        assert ann_response == {"type": "joined", "name": "Bob"}
+        assert ann_response == {"type": "joined", "name": "Bob", "user_id": str(bob.id)}
 
         [bob_queue] = [
             c.queue for c in manager.rooms[room.id].values() if c.user_id == bob.id
@@ -301,6 +305,6 @@ async def test_a_dropped_client_is_announced_once(
         manager.broadcast(room.id, {"type": "message", "text": "new"})
         got = [await a.receive_json(timeout=1) for _ in range(2)]
         assert {"type": "message", "text": "new"} in got
-        assert {"type": "left", "name": "Bob"} in got
+        assert {"type": "left", "name": "Bob", "user_id": str(bob.id)} in got
         with pytest.raises(TimeoutError):
             await a.receive_json(timeout=0.2)
